@@ -65,7 +65,7 @@ RUN mkdir -p /home/ros/ros2_ws/src
 
 WORKDIR /home/ros/ros2_ws/src
 
-# RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/v1.2.1/zsh-in-docker.sh)"
-# RUN git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k"
+RUN git clone https://github.com/raunaqbhirangi/anyskin.git --recursive && \
+    cd anyskin && \
+    sudo pip install -e .
 
-SHELL ["/bin/bash", "-c"]
