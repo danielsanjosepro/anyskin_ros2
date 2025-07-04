@@ -1,12 +1,12 @@
 {
-    "name": "ROS 2 - Project",
+    "name": "AnySkin ROS2 Dev",
     "privileged": true,
     "remoteUser": "ros",
-    "dockerComposeFile": "../docker-compose.yaml",
+    "dockerComposeFile": "./docker-compose.yaml",
     "workspaceFolder": "/home/ros/ros2_ws/src/anyskin_ros2",
     "service": "anyskin_ros2",
     "features": {
-        "ghcr.io/duduribeiro/devcontainer-features/neovim:1": {
+        "ghcr.io/larsnieuwenhuizen/features/neovim:0": {
             "version": "stable"
         },
         "ghcr.io/devcontainers/features/node:1": {

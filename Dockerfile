@@ -1,6 +1,6 @@
 ARG ROS_DISTRO=humble
  
-FROM osrf/ros:${ROS_DISTRO}-desktop
+FROM osrf/ros:${ROS_DISTRO}-desktop AS base
 
 ENV ROS_DISTRO=${ROS_DISTRO}
 
@@ -67,5 +67,14 @@ WORKDIR /home/ros/ros2_ws/src
 
 RUN git clone https://github.com/raunaqbhirangi/anyskin.git --recursive && \
     cd anyskin && \
-    sudo pip install -e .
+    sudo pip install -e . && \
+    touch COLCON_IGNORE
+
+FROM base AS overlay
+
+COPY --chown=ros:ros . /home/ros/ros2_ws/src/anyskin_ros2
+
+WORKDIR /home/ros/ros2_ws
+RUN source /opt/ros/${ROS_DISTRO}/setup.bash && colcon build
+
 

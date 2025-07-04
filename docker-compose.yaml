@@ -1,17 +1,17 @@
 services:
-  anyskin_ros2:
+  anyskin_ros2_base:
+    image: anyskin_ros2:base
     build:
       context: .
+      target: base
       args:
         ROS_DISTRO: humble
-    container_name: anyskin_ros2_container
+    container_name: anyskin_ros2_base_container
 
-    # === Tune this to your application ===
     network_mode: "host"
     ipc: "host"
     pid: "host"
     privileged: true
-    # ===
 
     command: /bin/bash
     tty: true
@@ -37,3 +37,18 @@ services:
       rttime: -1
       memlock: 8428281856
 
+  anyskin_ros2_overlay:
+    extends: anyskin_ros2_base
+    image: anyskin_ros2:overlay
+    build:
+      context: .
+      target: overlay
+    container_name: anyskin_ros2_overlay_container
+
+  anyskin_ros2_magnitude_broadcaster:
+    extends: anyskin_ros2_overlay
+    container_name: anyskin_ros2_overlay_container
+    command: >
+      bash -c "source /opt/ros/$ROS_DISTRO/setup.bash &&
+      source install/setup.bash &&
+      ros2 run anyskin_ros2_bringup tactile_sensor_broadcaster"
