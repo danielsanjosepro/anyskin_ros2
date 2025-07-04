@@ -72,6 +72,8 @@ RUN git clone https://github.com/raunaqbhirangi/anyskin.git --recursive && \
 
 FROM base AS overlay
 
+ENV ROS_DISTRO=${ROS_DISTRO}
+
 COPY --chown=ros:ros . /home/ros/ros2_ws/src/anyskin_ros2
 
 WORKDIR /home/ros/ros2_ws

@@ -5,7 +5,7 @@ services:
       target: base
       args:
         ROS_DISTRO: humble
-    container_name: anyskin_ros2_container
+    container_name: anyskin_ros2_devcontainer
 
     network_mode: "host"
     ipc: "host"

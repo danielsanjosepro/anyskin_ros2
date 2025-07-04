@@ -47,8 +47,10 @@ services:
 
   anyskin_ros2_magnitude_broadcaster:
     extends: anyskin_ros2_overlay
-    container_name: anyskin_ros2_overlay_container
+    container_name: anyskin_ros2_broadcaster_container
+    environment:
     command: >
-      bash -c "source /opt/ros/$ROS_DISTRO/setup.bash &&
+      bash -c "
+      source /opt/ros/$$ROS_DISTRO/setup.bash &&
       source install/setup.bash &&
-      ros2 run anyskin_ros2_bringup tactile_sensor_broadcaster"
+      ros2 launch anyskin_bringup anyskin.launch.py namespace:=${NAMESPACE-'anyskin'} device:=${DEVICE-'/dev/ttyACM0'}"

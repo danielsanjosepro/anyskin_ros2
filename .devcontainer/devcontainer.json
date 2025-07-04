@@ -6,7 +6,7 @@
     "workspaceFolder": "/home/ros/ros2_ws/src/anyskin_ros2",
     "service": "anyskin_ros2",
     "features": {
-        "ghcr.io/larsnieuwenhuizen/features/neovim:0": {
+        "ghcr.io/duduribeiro/devcontainer-features/neovim:1": {
             "version": "stable"
         },
         "ghcr.io/devcontainers/features/node:1": {
