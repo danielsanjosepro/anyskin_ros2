@@ -1,0 +1,2 @@
+SUBSYSTEM=="tty", ATTRS{idVendor}=="239a", ATTRS{idProduct}=="80cb", SYMLINK+="left_anyskin", MODE="0666", ATTR{device/latency_timer}="1"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="xxxx", ATTRS{idProduct}=="xxxx", SYMLINK+="right_anyskin", MODE="0666", ATTR{device/latency_timer}="1"
