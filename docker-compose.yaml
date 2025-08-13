@@ -53,4 +53,5 @@ services:
       bash -c "
       source /opt/ros/$$ROS_DISTRO/setup.bash &&
       source install/setup.bash &&
-      ros2 launch anyskin_bringup anyskin.launch.py namespace:=${NAMESPACE-'anyskin'} device:=${DEVICE-'/dev/ttyACM0'}"
+      ros2 launch anyskin_bringup anyskin.launch.py namespace:=${NAMESPACE-'anyskin'} device:=${DEVICE-'/dev/ttyACM0'}
+      & ros2 run image_transport republish raw compressed --ros-args -r in:=/${NAMESPACE-'anyskin'}/image_raw -r out/compressed:=/${NAMESPACE-'anyskin'}/image_raw/compressed"

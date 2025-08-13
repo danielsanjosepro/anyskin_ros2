@@ -50,6 +50,8 @@ RUN apt-get update && \
     python3-setuptools \
     python3-vcstool \
     python3-colcon-common-extensions \
+    ros-${ROS_DISTRO}-image-transport \
+    ros-${ROS_DISTRO}-compressed-image-transport \
     cmake \
     libpoco-dev \
     libeigen3-dev \
