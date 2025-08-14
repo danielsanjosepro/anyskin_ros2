@@ -259,8 +259,13 @@ class AnySkinPublisher(Node):
             if i < len(sensor_values):
                 sensor_val = sensor_values[i]
 
-                # Map absolute sensor value to standard deviation (1 to 50 pixels)
-                min_old, max_old, min_new, max_new = 0.0, 400.0, 1.0, 50.0
+                # Map absolute sensor value to standard deviation (1 to 1/4 of max width pixels)
+                min_old, max_old, min_new, max_new = (
+                    0.0,
+                    400.0,
+                    1.0,
+                    self.image_size / 4.0,
+                )
                 std_dev = (max_new - min_new) / (max_old - min_old) * (
                     np.clip(abs(sensor_val), min_old, max_old) - min_old
                 ) + min_new

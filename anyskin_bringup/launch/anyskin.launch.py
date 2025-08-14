@@ -17,18 +17,35 @@ def generate_launch_description():
         description="ROS namespace to prepend to the node",
     )
 
+    image_size_arg = DeclareLaunchArgument(
+        "image_size",
+        default_value="256",
+        description="Size of the tactile sensor image in pixels",
+    )
+    should_filter_arg = DeclareLaunchArgument(
+        "should_filter",
+        default_value="true",
+        description="Whether to filter the tactile sensor data with a high-pass filter",
+    )
+
     anyskin_node = Node(
         package="anyskin_bringup",
         executable="tactile_sensor_broadcaster",
         name="tactile_sensor_broadcaster",
         namespace=LaunchConfiguration("namespace"),
-        parameters=[{"device": LaunchConfiguration("device")}],
+        parameters=[
+            {"port": LaunchConfiguration("device")},
+            {"image_size": LaunchConfiguration("image_size")},
+            {"should_filter": LaunchConfiguration("should_filter")},
+        ],
     )
 
     return LaunchDescription(
         [
             device_arg,
             namespace_arg,
+            image_size_arg,
+            should_filter_arg,
             anyskin_node,
         ]
     )
