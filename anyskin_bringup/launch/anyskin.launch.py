@@ -27,6 +27,18 @@ def generate_launch_description():
         default_value="true",
         description="Whether to filter the tactile sensor data with a high-pass filter",
     )
+    all_values_arg = DeclareLaunchArgument(
+        "all_values",
+        default_value="false",
+        description="Whether to publish all values from the tactile sensor",
+    )
+    args = [
+        device_arg,
+        namespace_arg,
+        image_size_arg,
+        should_filter_arg,
+        all_values_arg,
+    ]
 
     anyskin_node = Node(
         package="anyskin_bringup",
@@ -37,15 +49,13 @@ def generate_launch_description():
             {"port": LaunchConfiguration("device")},
             {"image_size": LaunchConfiguration("image_size")},
             {"should_filter": LaunchConfiguration("should_filter")},
+            {"all_values": LaunchConfiguration("all_values")},
         ],
     )
 
     return LaunchDescription(
         [
-            device_arg,
-            namespace_arg,
-            image_size_arg,
-            should_filter_arg,
+            *args,
             anyskin_node,
         ]
     )

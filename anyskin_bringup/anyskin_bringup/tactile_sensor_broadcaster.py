@@ -23,7 +23,7 @@ import numpy as np
 import rclpy
 
 from rclpy.node import Node
-from std_msgs.msg import Float32MultiArray
+from std_msgs.msg import Float32MultiArray, MultiArrayDimension
 from sensor_msgs.msg import CameraInfo, Image, CompressedImage
 from cv_bridge import CvBridge
 
@@ -61,6 +61,7 @@ class AnySkinPublisher(Node):
             "image_publish_rate_hz": 30.0,
             "high_pass_filter_cutoff_hz": 0.1,
             "image_size": 256,
+            "all_values": False,  # If True, publishes all sensor values, not just magnitude
         }
 
         for param, value in default_values.items():
@@ -157,7 +158,13 @@ class AnySkinPublisher(Node):
             self._callback_publish_image,
         )
 
-        self.data_magnitude = np.zeros(self.sensor.num_mags, dtype=np.float32)
+        self.broadcast_size = int(
+            self.sensor.num_mags
+            if not self.get_parameter("all_values").get_parameter_value().bool_value
+            else self.sensor.num_mags * self.num_dimensions,
+        )
+        self.data_magnitude = np.zeros(self.broadcast_size, dtype=np.float32)
+
         self.image = np.zeros((self.image_size, self.image_size, 3), dtype=np.float32)
 
         self._baseline = None
@@ -172,11 +179,6 @@ class AnySkinPublisher(Node):
         """Publish the processed image of the anyskin sensor."""
         try:
             img_uint8 = np.clip((self.image * 256), 0, 255).astype(np.uint8)
-
-            # Create random noise to test
-            # img_uint8 = np.random.randint(
-            #     0, 256, (self.image_size, self.image_size), dtype=np.uint8
-            # )
 
             img_msg = self._cv_bridge.cv2_to_imgmsg(img_uint8, encoding="rgb8")
             stamp = self.get_clock().now().to_msg()
@@ -196,7 +198,26 @@ class AnySkinPublisher(Node):
         try:
             msg = Float32MultiArray()
             msg.data = self.data_magnitude.astype(float).tolist()
-
+            if not self.get_parameter("all_values").get_parameter_value().bool_value:
+                msg.layout.dim = [
+                    MultiArrayDimension(
+                        label="magnitudes", size=self.sensor.num_mags, stride=1
+                    )
+                ]
+            else:
+                msg.layout.dim = [
+                    MultiArrayDimension(
+                        label="rows",
+                        size=self.sensor.num_mags,
+                        stride=self.sensor.num_mags * self.num_dimensions,
+                    ),
+                    MultiArrayDimension(
+                        label="columns",
+                        size=self.num_dimensions,
+                        stride=self.num_dimensions,
+                    ),
+                ]
+            msg.layout.data_offset = 0
             self._data_publisher.publish(msg)
         except Exception as exc:
             self.get_logger().warn(f"Data publish failed: {exc}")
@@ -229,9 +250,15 @@ class AnySkinPublisher(Node):
                     x_channels[:, :, 1] + y_channels[:, :, 1] + z_channels[:, :, 1]
                 )  # All negative (blue)
 
-                self.data_magnitude = np.linalg.norm(diff, axis=1)
+                self.data_magnitude = (
+                    np.linalg.norm(diff, axis=1)
+                    if not self.get_parameter("all_values")
+                    .get_parameter_value()
+                    .bool_value
+                    else diff.flatten()
+                )
             else:
-                self.data_magnitude = np.zeros(self.sensor.num_mags, dtype=np.float32)
+                self.data_magnitude = np.zeros(self.broadcast_size, dtype=np.float32)
 
         except Exception as exc:
             self.get_logger().warn(f"Sensor read failed: {exc}")
