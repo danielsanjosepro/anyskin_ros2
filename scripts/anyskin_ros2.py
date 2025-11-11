@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 """ROS 2 node that streams AnySkin tactile data.
 
-‣ Topic           : /anyskin_data   (std_msgs/msg/Float32MultiArray)
+‣ Topic           : /tactile_data   (std_msgs/msg/Float32MultiArray)
 ‣ QoS             : depth 10 (best-effort fits high-rate streaming)
-‣ Parameters      :
-      port              (/dev/ttyACM0)
-      num_mags          (5)
-      baudrate          (115200)
-      burst_mode        (true)
-      temp_filtered     (true)
-      use_dummy         (false)    # handy for development w/o hardware
-      publish_rate_hz   (200.0)    # 0 ⇒ “publish as fast as data arrives”
-
-If the return signature of `get_sample()` ever changes, the helper
-`_unpack_sample()` keeps the rest of the code working.
+‣ Command-line Arguments:
+      --port                    (/dev/ttyACM0)
+      --num_mags                (5)
+      --baudrate                (115200)
+      --burst_mode              (True)
+      --temp_filtered           (True)
+      --data_publish_rate_hz    (50.0)
+      --image_publish_rate_hz   (30.0)
+      --image_size              (50)
+      --all_values              (False)  # If set, publishes all sensor values (not just magnitude)
 """
 
 from __future__ import annotations
+import argparse
 import time
 
 import numpy as np
@@ -29,61 +29,46 @@ from cv_bridge import CvBridge
 
 from anyskin import AnySkinBase
 
-from anyskin_filtering.high_pass_filter import HighPassFilter
-
 
 class AnySkinPublisher(Node):
     """ROS 2 node that streams AnySkin tactile data.
 
     ‣ Topic           : /tactile_data   (std_msgs/msg/Float32MultiArray)
     ‣ QoS             : depth 10 (best-effort fits high-rate streaming)
-    ‣ Parameters      :
-          port              (/dev/ttyACM0)
-          num_mags          (5)
-          baudrate          (115200)
-          burst_mode        (true)
-          temp_filtered     (true)
-          use_dummy         (false)    # handy for development w/o hardware
-          publish_rate_hz   (200.0)    # 0 ⇒ “publish as fast as data arrives”
+    ‣ Command-line Arguments:
+          --port                    (/dev/ttyACM0)
+          --num_mags                (5)
+          --baudrate                (115200)
+          --burst_mode              (True)
+          --temp_filtered           (True)
+          --data_publish_rate_hz    (50.0)
+          --image_publish_rate_hz   (30.0)
+          --image_size              (50)
+          --all_values              (False)
     """
 
-    def __init__(self):
+    def __init__(self, args):
         super().__init__("anyskin_publisher")
 
-        default_values = {
-            "port": "/dev/ttyACM0",
-            "num_mags": 5,
-            "baudrate": 115200,
-            "burst_mode": True,
-            "temp_filtered": True,
-            "data_process_rate_hz": 200.0,
-            "data_publish_rate_hz": 50.0,
-            "image_publish_rate_hz": 30.0,
-            "high_pass_filter_cutoff_hz": 0.1,
-            "image_size": 50,
-            "all_values": False,  # If True, publishes all sensor values, not just magnitude
-        }
-
-        for param, value in default_values.items():
-            self.declare_parameter(param, value)
+        self.port = args.port
+        self.num_mags = args.num_mags
+        self.baudrate = args.baudrate
+        self.burst_mode = args.burst_mode
+        self.temp_filtered = args.temp_filtered
+        self.data_publish_rate_hz = args.data_publish_rate_hz
+        self.image_publish_rate_hz = args.image_publish_rate_hz
+        self.image_size = args.image_size
+        self.all_values = args.all_values
 
         self.sensor = AnySkinBase(
-            num_mags=self.get_parameter("num_mags").get_parameter_value().integer_value,
-            port=self.get_parameter("port").get_parameter_value().string_value,
-            baudrate=self.get_parameter("baudrate").get_parameter_value().integer_value,
-            burst_mode=self.get_parameter("burst_mode")
-            .get_parameter_value()
-            .bool_value,
-            temp_filtered=self.get_parameter("temp_filtered")
-            .get_parameter_value()
-            .bool_value,
+            num_mags=self.num_mags,
+            port=self.port,
+            baudrate=self.baudrate,
+            burst_mode=self.burst_mode,
+            temp_filtered=self.temp_filtered,
         )
         self.num_magnets = self.sensor.num_mags
         self.num_dimensions = 3
-
-        self.image_size = (
-            self.get_parameter("image_size").get_parameter_value().integer_value
-        )
 
         # Pre-compute meshgrid for efficiency
         x = np.linspace(0, self.image_size - 1, self.image_size)
@@ -124,43 +109,21 @@ class AnySkinPublisher(Node):
             0.0,
             1.0,  # s, 0, 1
         ]
-        self.high_pass_filter = HighPassFilter(
-            n_channels=self.sensor.num_mags * self.num_dimensions,
-            cutoff_frequency=self.get_parameter("high_pass_filter_cutoff_hz")
-            .get_parameter_value()
-            .double_value,
-            sampling_rate=self.get_parameter("data_process_rate_hz")
-            .get_parameter_value()
-            .double_value,
-        )
 
         self._image_publisher = self.create_publisher(Image, "image_raw", 10)
-        self._data_process_timer = self.create_timer(
-            1.0
-            / self.get_parameter("data_process_rate_hz")
-            .get_parameter_value()
-            .double_value,
-            self._callback_process_data,
-        )
 
         self._data_timer = self.create_timer(
-            1.0
-            / self.get_parameter("data_publish_rate_hz")
-            .get_parameter_value()
-            .double_value,
+            1.0 / self.data_publish_rate_hz,
             self._callback_publish_data,
         )
         self._image_timer = self.create_timer(
-            1.0
-            / self.get_parameter("image_publish_rate_hz")
-            .get_parameter_value()
-            .double_value,
+            1.0 / self.image_publish_rate_hz,
             self._callback_publish_image,
         )
 
         self.broadcast_size = int(
             self.sensor.num_mags
-            if not self.get_parameter("all_values").get_parameter_value().bool_value
+            if not self.all_values
             else self.sensor.num_mags * self.num_dimensions,
         )
         self.data_magnitude = np.zeros(self.broadcast_size, dtype=np.float32)
@@ -196,9 +159,38 @@ class AnySkinPublisher(Node):
     def _callback_publish_data(self):
         """Publish the data of the anyskin sensor."""
         try:
+            _, data = self.sensor.get_sample()
+            data = data.reshape(-1, 3)
+
+            if self._baseline is not None:
+                # Simple difference from baseline (no filtering)
+                diff = data - self._baseline
+
+                # Get processed images for each axis (returns positive/negative channels)
+                x_channels = self.get_processed_image(diff[:, 0])  # Shape: (H, W, 2)
+                y_channels = self.get_processed_image(diff[:, 1])
+                z_channels = self.get_processed_image(diff[:, 2])
+
+                # Map to RGB: Red = positive, Blue = negative, Green = combination
+                self.image[:, :, 0] = x_channels[:, :, 0]  # X-axis positive (red)
+                self.image[:, :, 1] = (
+                    y_channels[:, :, 0] + z_channels[:, :, 0]
+                ) * 0.5  # Y+Z positive (green)
+                self.image[:, :, 2] = (
+                    x_channels[:, :, 1] + y_channels[:, :, 1] + z_channels[:, :, 1]
+                )  # All negative (blue)
+
+                self.data_magnitude = (
+                    np.linalg.norm(diff, axis=1)
+                    if not self.all_values
+                    else diff.flatten()
+                )
+            else:
+                self.data_magnitude = np.zeros(self.broadcast_size, dtype=np.float32)
+
             msg = Float32MultiArray()
             msg.data = self.data_magnitude.astype(float).tolist()
-            if not self.get_parameter("all_values").get_parameter_value().bool_value:
+            if not self.all_values:
                 msg.layout.dim = [
                     MultiArrayDimension(
                         label="magnitudes", size=self.sensor.num_mags, stride=1
@@ -221,48 +213,6 @@ class AnySkinPublisher(Node):
             self._data_publisher.publish(msg)
         except Exception as exc:
             self.get_logger().warn(f"Data publish failed: {exc}")
-
-    def _callback_process_data(self):
-        """Publish the data of the anyskin sensor."""
-        try:
-            _, data = self.sensor.get_sample()
-            data = data.reshape(-1, 3)
-
-            if self._baseline is not None:
-                # Apply filtering to the raw difference data (per axis)
-                diff_raw = data - self._baseline
-                # Reshape for filter: (n_channels, n_samples) where n_samples=1 for single sample
-                diff_reshaped = diff_raw.flatten().reshape(-1, 1)
-                filtered_flat = self.high_pass_filter.apply(diff_reshaped).flatten()
-                diff = filtered_flat.reshape(-1, self.num_dimensions)
-
-                # Get processed images for each axis (returns positive/negative channels)
-                x_channels = self.get_processed_image(diff[:, 0])  # Shape: (H, W, 2)
-                y_channels = self.get_processed_image(diff[:, 1])
-                z_channels = self.get_processed_image(diff[:, 2])
-
-                # Map to RGB: Red = positive, Blue = negative, Green = combination
-                self.image[:, :, 0] = x_channels[:, :, 0]  # X-axis positive (red)
-                self.image[:, :, 1] = (
-                    y_channels[:, :, 0] + z_channels[:, :, 0]
-                ) * 0.5  # Y+Z positive (green)
-                self.image[:, :, 2] = (
-                    x_channels[:, :, 1] + y_channels[:, :, 1] + z_channels[:, :, 1]
-                )  # All negative (blue)
-
-                self.data_magnitude = (
-                    np.linalg.norm(diff, axis=1)
-                    if not self.get_parameter("all_values")
-                    .get_parameter_value()
-                    .bool_value
-                    else diff.flatten()
-                )
-            else:
-                self.data_magnitude = np.zeros(self.broadcast_size, dtype=np.float32)
-
-        except Exception as exc:
-            self.get_logger().warn(f"Sensor read failed: {exc}")
-            raise exc
 
     def destroy_node(self):
         """Inform the user that the node is being destroyed."""
@@ -356,8 +306,53 @@ class AnySkinPublisher(Node):
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="ROS 2 node that streams AnySkin tactile data."
+    )
+    parser.add_argument(
+        "--port",
+        type=str,
+        default="/dev/ttyACM0",
+        help="Serial port for AnySkin sensor",
+    )
+    parser.add_argument(
+        "--num_mags", type=int, default=5, help="Number of magnets in the sensor"
+    )
+    parser.add_argument("--baudrate", type=int, default=115200, help="Serial baudrate")
+    parser.add_argument(
+        "--burst_mode", type=bool, default=True, help="Enable burst mode"
+    )
+    parser.add_argument(
+        "--temp_filtered", type=bool, default=True, help="Enable temperature filtering"
+    )
+    parser.add_argument(
+        "--data_publish_rate_hz",
+        type=float,
+        default=50.0,
+        help="Data publish rate in Hz",
+    )
+    parser.add_argument(
+        "--image_publish_rate_hz",
+        type=float,
+        default=30.0,
+        help="Image publish rate in Hz",
+    )
+    parser.add_argument(
+        "--image_size",
+        type=int,
+        default=50,
+        help="Size of the output image (width and height)",
+    )
+    parser.add_argument(
+        "--all_values",
+        action="store_true",
+        help="Publish all sensor values (not just magnitude)",
+    )
+
+    args = parser.parse_args()
+
     rclpy.init()
-    node = AnySkinPublisher()
+    node = AnySkinPublisher(args)
     while rclpy.ok():
         try:
             rclpy.spin_once(node, timeout_sec=0.001)

@@ -9,3 +9,4 @@ dependencies = [
     "scipy>=1.16.1",
     "anyskin>=1.0.0,<2",
 ]
+

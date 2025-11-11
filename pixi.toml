@@ -9,7 +9,7 @@ version = "0.1.0"
 anyskin-ros2 = "python -m scripts.anyskin_ros2"
 
 [pypi-dependencies]
-anyskin-ros2 = {path = ".", editable = true}
+# anyskin-ros2 = {path = ".", editable = true}
 ruff = ">=0.14.3, <0.15"
 anyskin = ">=1.0.0, <2"
 
