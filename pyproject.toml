@@ -1,7 +1,7 @@
 [project]
 name = "anyskin-ros2"
 version = "0.1.0"
-description = "Add your description here"
+description = "ROS2 integration for Anyskin"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
