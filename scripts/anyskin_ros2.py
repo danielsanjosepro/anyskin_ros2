@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-"""ROS 2 node that streams AnySkin tactile data.
+"""ROS 2 node that streams AnySkin tactile data with visualization.
 
-‣ Topic           : /tactile_data   (std_msgs/msg/Float32MultiArray)
+‣ Topics:
+    /tactile_data        (std_msgs/msg/Float32MultiArray)
+    /image_raw           (sensor_msgs/msg/Image)
+    /camera_info         (sensor_msgs/msg/CameraInfo)
+‣ Services:
+    /reset               (std_srvs/srv/Trigger)
 ‣ QoS             : depth 10 (best-effort fits high-rate streaming)
 ‣ Command-line Arguments:
       --port                    (/dev/ttyACM0)
@@ -9,46 +14,64 @@
       --baudrate                (115200)
       --burst_mode              (True)
       --temp_filtered           (True)
+      --namespace               (None)
       --data_publish_rate_hz    (50.0)
       --image_publish_rate_hz   (30.0)
-      --image_size              (50)
+      --image_width             (400)
+      --image_height            (400)
+      --viz_mode                (3axis)
+      --scaling                 (7.0)
       --all_values              (False)  # If set, publishes all sensor values (not just magnitude)
 """
 
 from __future__ import annotations
 import argparse
 import time
+import os
 
 import numpy as np
+import cv2
 import rclpy
 
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray, MultiArrayDimension
-from sensor_msgs.msg import CameraInfo, Image, CompressedImage
+from sensor_msgs.msg import CameraInfo, Image
+from std_srvs.srv import Trigger
 from cv_bridge import CvBridge
 
 from anyskin import AnySkinBase
 
 
-class AnySkinPublisher(Node):
-    """ROS 2 node that streams AnySkin tactile data.
+class AnySkinImagePublisher(Node):
+    """ROS 2 node that streams AnySkin tactile data with visualization.
 
-    ‣ Topic           : /tactile_data   (std_msgs/msg/Float32MultiArray)
-    ‣ QoS             : depth 10 (best-effort fits high-rate streaming)
+    ‣ Topics:
+        /tactile_data        (std_msgs/msg/Float32MultiArray)
+        /image_raw           (sensor_msgs/msg/Image)
+        /camera_info         (sensor_msgs/msg/CameraInfo)
+    ‣ Services:
+        /reset               (std_srvs/srv/Trigger)
     ‣ Command-line Arguments:
           --port                    (/dev/ttyACM0)
           --num_mags                (5)
           --baudrate                (115200)
           --burst_mode              (True)
           --temp_filtered           (True)
+          --namespace               (None)
           --data_publish_rate_hz    (50.0)
           --image_publish_rate_hz   (30.0)
-          --image_size              (50)
+          --image_width             (400)
+          --image_height            (400)
+          --viz_mode                (3axis)
+          --scaling                 (7.0)
           --all_values              (False)
     """
 
     def __init__(self, args):
-        super().__init__("anyskin_publisher")
+        super().__init__(
+            "anyskin_image_publisher",
+            namespace=args.namespace if args.namespace else None,
+        )
 
         self.port = args.port
         self.num_mags = args.num_mags
@@ -57,7 +80,10 @@ class AnySkinPublisher(Node):
         self.temp_filtered = args.temp_filtered
         self.data_publish_rate_hz = args.data_publish_rate_hz
         self.image_publish_rate_hz = args.image_publish_rate_hz
-        self.image_size = args.image_size
+        self.desired_width = args.image_width
+        self.desired_height = args.image_height
+        self.viz_mode = args.viz_mode
+        self.scaling = args.scaling
         self.all_values = args.all_values
 
         self.sensor = AnySkinBase(
@@ -70,18 +96,46 @@ class AnySkinPublisher(Node):
         self.num_magnets = self.sensor.num_mags
         self.num_dimensions = 3
 
-        # Pre-compute meshgrid for efficiency
-        x = np.linspace(0, self.image_size - 1, self.image_size)
-        y = np.linspace(0, self.image_size - 1, self.image_size)
-        self.X, self.Y = np.meshgrid(x, y)
-        # Define sensor positions: center, left, right, top, bottom
-        self.positions = [
-            (self.image_size // 2, self.image_size // 2),  # center
-            (self.image_size // 4, self.image_size // 2),  # left
-            (3 * self.image_size // 4, self.image_size // 2),  # right
-            (self.image_size // 2, self.image_size // 4),  # top
-            (self.image_size // 2, 3 * self.image_size // 4),  # bottom
-        ]
+        # Load background image
+        dir_path = os.path.dirname(os.path.realpath(__file__))
+        bg_image_path = os.path.join(dir_path, "images/viz_bg.png")
+
+        if os.path.exists(bg_image_path):
+            self.bg_image = cv2.imread(bg_image_path)
+            self.bg_image = cv2.cvtColor(self.bg_image, cv2.COLOR_BGR2RGB)
+            self.bg_image = cv2.resize(
+                self.bg_image, (self.desired_width, self.desired_height)
+            )
+        else:
+            self.bg_image = (
+                np.ones((self.desired_height, self.desired_width, 3), dtype=np.uint8)
+                * 234
+            )
+            self.get_logger().warn(
+                f"Background image not found at {bg_image_path}, using default background"
+            )
+
+        self.image_height, self.image_width = self.bg_image.shape[:2]
+
+        # Original chip locations designed for 400x400 image
+        original_chip_locations = np.array(
+            [
+                [204, 222],  # center
+                [130, 222],  # left
+                [279, 222],  # right
+                [204, 157],  # up
+                [204, 290],  # down
+            ]
+        )
+        # Scale chip locations based on image dimensions
+        scale_x = self.image_width / 400.0
+        scale_y = self.image_height / 400.0
+        self.chip_locations = original_chip_locations * np.array([scale_x, scale_y])
+        self.chip_locations = self.chip_locations.astype(int)
+
+        self.chip_xy_rotations = np.array(
+            [-np.pi / 2, -np.pi / 2, np.pi, np.pi / 2, 0.0]
+        )
 
         self._data_publisher = self.create_publisher(
             Float32MultiArray, "tactile_data", 10
@@ -94,17 +148,17 @@ class AnySkinPublisher(Node):
         )
         self._camera_info = CameraInfo()
         self._camera_info.header.frame_id = "anyskin_camera"
-        self._camera_info.width = self.image_size
-        self._camera_info.height = self.image_size
+        self._camera_info.width = self.image_width
+        self._camera_info.height = self.image_height
         self._camera_info.distortion_model = "plumb_bob"
         self._camera_info.d = [0.0] * 5  # Distortion coefficients
         self._camera_info.k = [
             1.0,
             0.0,
-            self.image_size / 2.0,  # fx, skew, cx
+            self.image_width / 2.0,  # fx, skew, cx
             0.0,
             1.0,
-            self.image_size / 2.0,  # fy, cy
+            self.image_height / 2.0,  # fy, cy
             0.0,
             0.0,
             1.0,  # s, 0, 1
@@ -121,29 +175,89 @@ class AnySkinPublisher(Node):
             self._callback_publish_image,
         )
 
+        # Create service for resetting baseline
+        self._reset_baseline_service = self.create_service(
+            Trigger, "reset", self._callback_reset_baseline
+        )
+
         self.broadcast_size = int(
             self.sensor.num_mags
             if not self.all_values
             else self.sensor.num_mags * self.num_dimensions,
         )
         self.data_magnitude = np.zeros(self.broadcast_size, dtype=np.float32)
-
-        self.image = np.zeros((self.image_size, self.image_size, 3), dtype=np.float32)
+        self.current_sensor_data = np.zeros(
+            (self.num_magnets, self.num_dimensions), dtype=np.float32
+        )
 
         self._baseline = None
 
         self.get_logger().info("Calibrating AnySkin sensor to zero...")
-
         self.calibrate_to_zero(num_samples=10, sample_rate=10.0)
+        self.get_logger().info("AnySkin image publisher started.")
 
-        self.get_logger().info("AnySkin publisher started.")
+    def _visualize_data(self, data):
+        """Render sensor data visualization to an image array.
+
+        Args:
+            data: Sensor data array of shape (num_mags, 3)
+
+        Returns:
+            np.ndarray: RGB image array
+        """
+        # Start with a copy of the background image
+        img = self.bg_image.copy()
+
+        data = data.reshape(-1, 3)
+        data_mag = np.linalg.norm(data, axis=1)
+
+        # Draw the chip locations
+        for magid, chip_location in enumerate(self.chip_locations):
+            if magid >= len(data):
+                continue
+
+            if self.viz_mode == "magnitude":
+                # Draw circle with magnitude
+                radius = int(data_mag[magid] / self.scaling)
+                if radius > 0:
+                    cv2.circle(img, tuple(chip_location), radius, (255, 83, 72), -1)
+
+            elif self.viz_mode == "3axis":
+                radius = int(np.abs(data[magid, -1]) / self.scaling)
+                if radius > 0:
+                    if data[magid, -1] < 0:
+                        cv2.circle(img, tuple(chip_location), radius, (255, 0, 0), 2)
+                    else:
+                        cv2.circle(img, tuple(chip_location), radius, (255, 0, 0), -1)
+
+                arrow_start = chip_location
+                rotation_mat = np.array(
+                    [
+                        [
+                            np.cos(self.chip_xy_rotations[magid]),
+                            -np.sin(self.chip_xy_rotations[magid]),
+                        ],
+                        [
+                            np.sin(self.chip_xy_rotations[magid]),
+                            np.cos(self.chip_xy_rotations[magid]),
+                        ],
+                    ]
+                )
+                data_xy = np.dot(rotation_mat, data[magid, :2])
+                arrow_end = (
+                    int(chip_location[0] + data_xy[0] / self.scaling),
+                    int(chip_location[1] + data_xy[1] / self.scaling),
+                )
+                cv2.line(img, tuple(arrow_start), arrow_end, (0, 255, 0), 2)
+
+        return img
 
     def _callback_publish_image(self):
-        """Publish the processed image of the anyskin sensor."""
+        """Publish the visualization image."""
         try:
-            img_uint8 = np.clip((self.image * 256), 0, 255).astype(np.uint8)
+            img = self._visualize_data(self.current_sensor_data)
 
-            img_msg = self._cv_bridge.cv2_to_imgmsg(img_uint8, encoding="rgb8")
+            img_msg = self._cv_bridge.cv2_to_imgmsg(img, encoding="rgb8")
             stamp = self.get_clock().now().to_msg()
             img_msg.header.stamp = stamp
             img_msg.header.frame_id = "anyskin_sensor"
@@ -163,22 +277,8 @@ class AnySkinPublisher(Node):
             data = data.reshape(-1, 3)
 
             if self._baseline is not None:
-                # Simple difference from baseline (no filtering)
                 diff = data - self._baseline
-
-                # Get processed images for each axis (returns positive/negative channels)
-                x_channels = self.get_processed_image(diff[:, 0])  # Shape: (H, W, 2)
-                y_channels = self.get_processed_image(diff[:, 1])
-                z_channels = self.get_processed_image(diff[:, 2])
-
-                # Map to RGB: Red = positive, Blue = negative, Green = combination
-                self.image[:, :, 0] = x_channels[:, :, 0]  # X-axis positive (red)
-                self.image[:, :, 1] = (
-                    y_channels[:, :, 0] + z_channels[:, :, 0]
-                ) * 0.5  # Y+Z positive (green)
-                self.image[:, :, 2] = (
-                    x_channels[:, :, 1] + y_channels[:, :, 1] + z_channels[:, :, 1]
-                )  # All negative (blue)
+                self.current_sensor_data = diff
 
                 self.data_magnitude = (
                     np.linalg.norm(diff, axis=1)
@@ -187,6 +287,9 @@ class AnySkinPublisher(Node):
                 )
             else:
                 self.data_magnitude = np.zeros(self.broadcast_size, dtype=np.float32)
+                self.current_sensor_data = np.zeros(
+                    (self.num_magnets, self.num_dimensions), dtype=np.float32
+                )
 
             msg = Float32MultiArray()
             msg.data = self.data_magnitude.astype(float).tolist()
@@ -216,60 +319,30 @@ class AnySkinPublisher(Node):
 
     def destroy_node(self):
         """Inform the user that the node is being destroyed."""
-        self.get_logger().info("AnySkin publisher stopped.")
+        self.get_logger().info("AnySkin image publisher stopped.")
         super().destroy_node()
 
-    def get_processed_image(self, sensor_values: np.ndarray) -> np.ndarray:
-        """Generate a 2D Gaussian intensity image from the sensor values.
+    def _callback_reset_baseline(self, request, response):
+        """Service callback to reset the baseline calibration.
 
-        Positive values are visualized in red, negative values in blue.
+        Args:
+            request: Trigger request (empty)
+            response: Trigger response with success status and message
 
         Returns:
-            np.ndarray: A 2D array representing the Gaussian intensity image (image_size x image_size, 2).
-            Returns [positive_channel, negative_channel] for red/blue visualization.
+            Trigger.Response: Response indicating success or failure
         """
-        positive_image = np.zeros((self.image_size, self.image_size))
-        negative_image = np.zeros((self.image_size, self.image_size))
-
-        # Create Gaussian for each sensor
-        for i, (pos_x, pos_y) in enumerate(self.positions):
-            if i < len(sensor_values):
-                sensor_val = sensor_values[i]
-
-                # Map absolute sensor value to standard deviation (1 to 1/4 of max width pixels)
-                min_old, max_old, min_new, max_new = (
-                    0.0,
-                    400.0,
-                    1.0,
-                    self.image_size / 4.0,
-                )
-                std_dev = (max_new - min_new) / (max_old - min_old) * (
-                    np.clip(abs(sensor_val), min_old, max_old) - min_old
-                ) + min_new
-
-                # Scale magnitude of Gaussian based on absolute value
-                min_old, max_old, min_new, max_new = 0.0, 400.0, 0.0, 1.0
-                magnitude = (max_new - min_new) / (max_old - min_old) * (
-                    np.clip(abs(sensor_val), min_old, max_old) - min_old
-                ) + min_new
-
-                # Create individual Gaussian
-                gaussian = magnitude * np.exp(
-                    -((self.X - pos_x) ** 2 + (self.Y - pos_y) ** 2) / (2 * std_dev**2)
-                )
-
-                # Scale by sensor value intensity (0-1 range)
-                intensity = np.clip(abs(sensor_val) / 30.0, 0, 1)
-                weighted_gaussian = gaussian * intensity
-
-                # Add to appropriate channel based on sign
-                if sensor_val >= 0:
-                    positive_image += weighted_gaussian
-                else:
-                    negative_image += weighted_gaussian
-
-        # Stack positive and negative channels
-        return np.stack([positive_image, negative_image], axis=-1)
+        try:
+            self.get_logger().info("Resetting baseline calibration...")
+            self.calibrate_to_zero(num_samples=10, sample_rate=10.0)
+            response.success = True
+            response.message = "Baseline reset successfully"
+            self.get_logger().info("Baseline reset complete")
+        except Exception as e:
+            response.success = False
+            response.message = f"Failed to reset baseline: {str(e)}"
+            self.get_logger().error(f"Baseline reset failed: {e}")
+        return response
 
     def calibrate_to_zero(self, num_samples: int = 10, sample_rate: float = 10.0):
         """Calibrate the sensor to zero.
@@ -294,8 +367,6 @@ class AnySkinPublisher(Node):
                 f"Calibrating sample {sample_num + 1}/{num_samples}: {data}"
             )
 
-            # sample = np.linalg.norm(data, axis=1)
-            # samples[sample_num] = sample
             samples[sample_num] = data
             time.sleep(1.0 / sample_rate)
 
@@ -307,7 +378,7 @@ class AnySkinPublisher(Node):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="ROS 2 node that streams AnySkin tactile data."
+        description="ROS 2 node that streams AnySkin tactile data with visualization."
     )
     parser.add_argument(
         "--port",
@@ -326,6 +397,12 @@ def main():
         "--temp_filtered", type=bool, default=True, help="Enable temperature filtering"
     )
     parser.add_argument(
+        "--namespace",
+        type=str,
+        default=None,
+        help="ROS2 namespace for the node (e.g., 'sensor1', 'left_hand')",
+    )
+    parser.add_argument(
         "--data_publish_rate_hz",
         type=float,
         default=50.0,
@@ -338,10 +415,29 @@ def main():
         help="Image publish rate in Hz",
     )
     parser.add_argument(
-        "--image_size",
+        "--image_width",
         type=int,
-        default=50,
-        help="Size of the output image (width and height)",
+        default=400,
+        help="Width of the output image",
+    )
+    parser.add_argument(
+        "--image_height",
+        type=int,
+        default=400,
+        help="Height of the output image",
+    )
+    parser.add_argument(
+        "--viz_mode",
+        type=str,
+        default="3axis",
+        choices=["magnitude", "3axis"],
+        help="Visualization mode",
+    )
+    parser.add_argument(
+        "--scaling",
+        type=float,
+        default=7.0,
+        help="Scaling factor for visualization",
     )
     parser.add_argument(
         "--all_values",
@@ -352,7 +448,7 @@ def main():
     args = parser.parse_args()
 
     rclpy.init()
-    node = AnySkinPublisher(args)
+    node = AnySkinImagePublisher(args)
     while rclpy.ok():
         try:
             rclpy.spin_once(node, timeout_sec=0.001)

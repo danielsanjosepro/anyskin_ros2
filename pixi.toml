@@ -6,12 +6,23 @@ platforms = ["linux-64"]
 version = "0.1.0"
 
 [tasks]
-anyskin-ros2 = "python -m scripts.anyskin_ros2"
+anyskin-ros2-image = "python -m scripts.anyskin_ros2"
+
+[tasks.anyskin-reset]
+args = [
+    { "arg" = "namespace", "default" = "" },
+]
+cmd = "ros2 service call {{ namespace }}/reset std_srvs/srv/Trigger"
+
+[tasks.republish-compressed]
+args = [
+    { "arg" = "topic_name", "default" = "/image_raw" },
+]
+cmd = "ros2 run image_transport republish raw in:={{ topic_name }} out:={{ topic_name }}/compressed"
+
 
 [pypi-dependencies]
-# anyskin-ros2 = {path = ".", editable = true}
 ruff = ">=0.14.3, <0.15"
-anyskin = ">=1.0.0, <2"
 
 [dependencies]
 compilers = "*"
@@ -42,6 +53,7 @@ ros-humble-ros2-control = "*"
 ros-humble-ros2-controllers = "*"
 ros-humble-rmw-zenoh-cpp = "*"
 ros-humble-rmw-cyclonedds-cpp = "*"
+ros-humble-image-transport-plugins = "*"
 rosdep = "*"
 
 # jazzy
@@ -54,3 +66,5 @@ ros-jazzy-ros2-control = "*"
 ros-jazzy-ros2-controllers = "*"
 colcon-common-extensions = "*"
 rosdep = "*"
+ros-jazzy-rmw-cyclonedds-cpp = "*"
+ros-jazzy-image-transport-plugins = "*"
