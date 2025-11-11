@@ -394,9 +394,8 @@ class AnySkinImagePublisher(Node):
         for sample_num in range(num_samples):
             _, data = self.sensor.get_sample()
             data = data.reshape(-1, 3)  # Reshape to (num_magnets, num_dimensions)
-            self.get_logger().info(
-                f"Calibrating sample {sample_num + 1}/{num_samples}: {data}"
-            )
+            self.get_logger().info(f"Calibrating sample {sample_num + 1}/{num_samples}")
+            self.get_logger().debug(f"Sample data: {data}")
 
             samples[sample_num] = data
             time.sleep(1.0 / sample_rate)
