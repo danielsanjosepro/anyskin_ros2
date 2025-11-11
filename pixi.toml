@@ -6,7 +6,7 @@ platforms = ["linux-64"]
 version = "0.1.0"
 
 [tasks]
-anyskin-ros2-image = "python -m scripts.anyskin_ros2"
+anyskin-ros2 = "python -m scripts.anyskin_ros2"
 
 [tasks.anyskin-reset]
 args = [
@@ -23,6 +23,7 @@ cmd = "ros2 run image_transport republish raw in:={{ topic_name }} out:={{ topic
 
 [pypi-dependencies]
 ruff = ">=0.14.3, <0.15"
+anyskin = ">=1.0.0,<2"
 
 [dependencies]
 compilers = "*"

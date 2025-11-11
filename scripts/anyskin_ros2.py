@@ -3,6 +3,8 @@
 
 ‣ Topics:
     /tactile_data        (std_msgs/msg/Float32MultiArray)
+                         Default: 15 values [x, y, mag] per magnet (rotated to match viz)
+                         With --all_values: 15 values [x, y, z] per magnet (raw sensor data)
     /image_raw           (sensor_msgs/msg/Image)
     /camera_info         (sensor_msgs/msg/CameraInfo)
 ‣ Services:
@@ -21,7 +23,7 @@
       --image_height            (400)
       --viz_mode                (3axis)
       --scaling                 (7.0)
-      --all_values              (False)  # If set, publishes all sensor values (not just magnitude)
+      --all_values              (False)  # If set, publishes raw x,y,z values instead of rotated x,y + magnitude
 """
 
 from __future__ import annotations
@@ -47,6 +49,8 @@ class AnySkinImagePublisher(Node):
 
     ‣ Topics:
         /tactile_data        (std_msgs/msg/Float32MultiArray)
+                             Default: 15 values [x, y, mag] per magnet (rotated to match viz)
+                             With --all_values: 15 values [x, y, z] per magnet (raw sensor data)
         /image_raw           (sensor_msgs/msg/Image)
         /camera_info         (sensor_msgs/msg/CameraInfo)
     ‣ Services:
@@ -181,7 +185,7 @@ class AnySkinImagePublisher(Node):
         )
 
         self.broadcast_size = int(
-            self.sensor.num_mags
+            self.sensor.num_mags * 3  # x, y, magnitude per magnet
             if not self.all_values
             else self.sensor.num_mags * self.num_dimensions,
         )
@@ -280,11 +284,31 @@ class AnySkinImagePublisher(Node):
                 diff = data - self._baseline
                 self.current_sensor_data = diff
 
-                self.data_magnitude = (
-                    np.linalg.norm(diff, axis=1)
-                    if not self.all_values
-                    else diff.flatten()
-                )
+                if not self.all_values:
+                    # Publish rotated x, y vectors + magnitude (3 values per magnet)
+                    vector_data = []
+                    for magid in range(len(diff)):
+                        # Rotate x,y components to match visualization
+                        rotation_mat = np.array(
+                            [
+                                [
+                                    np.cos(self.chip_xy_rotations[magid]),
+                                    -np.sin(self.chip_xy_rotations[magid]),
+                                ],
+                                [
+                                    np.sin(self.chip_xy_rotations[magid]),
+                                    np.cos(self.chip_xy_rotations[magid]),
+                                ],
+                            ]
+                        )
+                        rotated_xy = np.dot(rotation_mat, diff[magid, :2])
+                        magnitude = np.linalg.norm(diff[magid])
+
+                        vector_data.extend([rotated_xy[0], rotated_xy[1], magnitude])
+
+                    self.data_magnitude = np.array(vector_data, dtype=np.float32)
+                else:
+                    self.data_magnitude = diff.flatten()
             else:
                 self.data_magnitude = np.zeros(self.broadcast_size, dtype=np.float32)
                 self.current_sensor_data = np.zeros(
@@ -296,8 +320,15 @@ class AnySkinImagePublisher(Node):
             if not self.all_values:
                 msg.layout.dim = [
                     MultiArrayDimension(
-                        label="magnitudes", size=self.sensor.num_mags, stride=1
-                    )
+                        label="vectors",
+                        size=self.sensor.num_mags,
+                        stride=self.sensor.num_mags * 3,
+                    ),
+                    MultiArrayDimension(
+                        label="components",
+                        size=3,
+                        stride=3,
+                    ),
                 ]
             else:
                 msg.layout.dim = [
@@ -442,7 +473,7 @@ def main():
     parser.add_argument(
         "--all_values",
         action="store_true",
-        help="Publish all sensor values (not just magnitude)",
+        help="Publish raw x,y,z sensor values instead of rotated x,y vectors + magnitude",
     )
 
     args = parser.parse_args()
