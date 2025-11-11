@@ -23,9 +23,3 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="239a", ATTRS{idProduct}=="80cb", SYMLINK+="a
 you should mofify the `idVendor` and `idProduct` with the correct numbers. You can check it using `lsusb` or `cyme`.
 
 Finally, run the script `scripts/set_udev_rules.sh`, and check the `ls /dev/anyskin_*` are available.
-Now you can start the container with:
-
-```bash
-NAMESPACE:=left_finger DEVICE:=/dev/anyskin_left docker compose up anyskin_ros2_magnitude_broadcaster
-```
-
