@@ -2,7 +2,15 @@
 
 ## Get started
 
-TODO
+Start broadcasting tactile data with the sensor:
+```bash
+pixi run -e humble anyskin-ros2 -h
+```
+To publish compressed images use:
+
+```bash
+pixi run -e humble republish-compressed
+```
 
 ## Set udev-rules
 
