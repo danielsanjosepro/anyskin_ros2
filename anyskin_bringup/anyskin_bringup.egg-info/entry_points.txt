@@ -1,2 +1,0 @@
-[console_scripts]
-tactile_sensor_broadcaster = anyskin_bringup.tactile_sensor_broadcaster:main

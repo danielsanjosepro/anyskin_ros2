@@ -5,10 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "anyskin-bringup",
     "pytest>=8.4.1",
     "scipy>=1.16.1",
+    "anyskin>=1.0.0,<2",
 ]
-
-[tool.uv.sources]
-anyskin-bringup = { path = "anyskin_bringup" }

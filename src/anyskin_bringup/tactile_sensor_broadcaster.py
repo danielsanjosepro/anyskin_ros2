@@ -60,7 +60,7 @@ class AnySkinPublisher(Node):
             "data_publish_rate_hz": 50.0,
             "image_publish_rate_hz": 30.0,
             "high_pass_filter_cutoff_hz": 0.1,
-            "image_size": 256,
+            "image_size": 50,
             "all_values": False,  # If True, publishes all sensor values, not just magnitude
         }
 
